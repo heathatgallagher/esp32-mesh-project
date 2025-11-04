@@ -1,0 +1,42 @@
+# ESP-IDF Build Artifacts
+build/
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Logs
+*.log
+esp_idf_monitor.log
+
+# Flash dumps
+*.bin
+*.elf
+*.map
+
+# Component build artifacts
+components/*/build/
+
+# Temporary files
+*.bak
+*.backup
