@@ -1,67 +1,130 @@
-# ESP32-C3 Mesh Network# ESP32-C3 Mesh Network
+# ESP32-C3 Mesh Network# ESP32-C3 Mesh Network# ESP32-C3 Mesh Network
 
 
 
-A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
+A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 
 
 
-## What it does## What it does
+## What it doesA simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 
 
+
+- Creates a self-organizing mesh network between ESP32-C3 devices
+
+- Automatically elects a root node to connect to your WiFi router
+
+- Sends messages between devices in the mesh## What it does## What it does
+
+- Works with 2 or more ESP32-C3 boards
+
+
+
+## Quick Setup
 
 - Creates a self-organizing mesh network between ESP32-C3 devices- Creates a self-organizing mesh network between ESP32-C3 devices
 
-- Automatically elects a root node to connect to your WiFi router- Automatically elects a root node to connect to your WiFi router
+1. **Install ESP-IDF v5.5.1**
 
-- Sends messages between devices in the mesh- Sends messages between devices in the mesh
+2. **Edit the WiFi settings** in `main/hello_world_main.c`:- Automatically elects a root node to connect to your WiFi router- Automatically elects a root node to connect to your WiFi router
 
-- Works with 2 or more ESP32-C3 boards- Works with 2 or more ESP32-C3 boards
+   ```c
+
+   static const char *ROUTER_SSID = "YourWiFiName";- Sends messages between devices in the mesh- Sends messages between devices in the mesh
+
+   static const char *ROUTER_PASS = "YourWiFiPassword";
+
+   ```- Works with 2 or more ESP32-C3 boards- Works with 2 or more ESP32-C3 boards
+
+3. **Build and flash**:
+
+   ```bash
+
+   idf.py build
+
+   idf.py flash monitor## Quick Setup## Quick Setup
+
+   ```
+
+4. **Repeat on multiple ESP32-C3 devices**
 
 
 
-## Quick Setup## Quick Setup
+## How it works1. **Install ESP-IDF v5.5.1**1. **Install ESP-IDF v5.5.1**
 
 
 
-1. **Install ESP-IDF v5.5.1**1. **Install ESP-IDF v5.5.1**
+- First device powered on becomes the root node2. **Edit the WiFi settings** in `main/hello_world_main.c`:2. **Edit the WiFi settings** in `main/hello_world_main.c`:
 
-2. **Edit the WiFi settings** in `main/hello_world_main.c`:2. **Edit the WiFi settings** in `main/hello_world_main.c`:
+- Other devices automatically join as child nodes
 
-   ```c   ```c
+- All devices can send messages to each other   ```c   ```c
+
+- If the root node fails, another device takes over
 
    static const char *ROUTER_SSID = "YourWiFiName";   static const char *ROUTER_SSID = "YourWiFiName";
 
+## What you'll see
+
    static const char *ROUTER_PASS = "YourWiFiPassword";   static const char *ROUTER_PASS = "YourWiFiPassword";
 
-   ```   ```
+**Root device logs:**
 
-3. **Build and flash**:3. **Build and flash**:
+```   ```   ```
 
-   ```bash   ```bash
+I MESH_UNIFIED: MESH_STARTED, layer=1
 
-   idf.py build   idf.py build
+I MESH_UNIFIED: PARENT_CONNECTED, layer=13. **Build and flash**:3. **Build and flash**:
 
-   idf.py flash monitor   idf.py flash monitor
+I MESH_UNIFIED: STATUS: connected=YES, layer=1, routing_table_size=1
 
-   ```   ```
+```   ```bash   ```bash
+
+
+
+**Child device logs:**   idf.py build   idf.py build
+
+```
+
+I MESH_UNIFIED: MESH_STARTED, layer=-1   idf.py flash monitor   idf.py flash monitor
+
+I MESH_UNIFIED: PARENT_CONNECTED, layer=2
+
+I MESH_UNIFIED: STATUS: connected=YES, layer=2, routing_table_size=1   ```   ```
+
+```
 
 4. **Repeat on multiple ESP32-C3 devices**4. **Repeat on multiple ESP32-C3 devices**
 
+## Files
 
 
-## How it works## How it works
+
+- `main/hello_world_main.c` - Main mesh code
+
+- `main/CMakeLists.txt` - Build configuration## How it works## How it works
+
+- `README.md` - This file
 
 
+
+## Troubleshooting
 
 - First device powered on becomes the root node- First device powered on becomes the root node
 
+**"No parent found" errors:** Make sure all devices have the same WiFi settings and are powered on.
+
 - Other devices automatically join as child nodes  - Other devices automatically join as child nodes  
+
+**Build errors:** Run `idf.py clean` then `idf.py build`
 
 - All devices can send messages to each other- All devices can send messages to each other
 
+## License
+
 - If the root node fails, another device takes over- If the root node fails, another device takes over
 
+MIT License - feel free to use this code in your projects.
 
 
 ## What you'll see## What you'll see
