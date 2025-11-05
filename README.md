@@ -1,14 +1,8 @@
-# ESP32-C3 Mesh Network# ESP32-C3 Mesh Network# ESP32-C3 Mesh Network
-
-
+# ESP32-C3 Mesh Network
 
 A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 
-
-
-## What it doesA simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
-
-
+## What it does
 
 - Creates a self-organizing mesh network between ESP32-C3 devices
 
@@ -17,8 +11,6 @@ A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 - Sends messages between devices in the mesh## What it does## What it does
 
 - Works with 2 or more ESP32-C3 boards
-
-
 
 ## Quick Setup
 
@@ -34,7 +26,9 @@ A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 
    static const char *ROUTER_PASS = "YourWiFiPassword";
 
-   ```- Works with 2 or more ESP32-C3 boards- Works with 2 or more ESP32-C3 boards
+   ```
+
+   - Works with 2 or more ESP32-C3 boards- Works with 2 or more ESP32-C3 boards
 
 3. **Build and flash**:
 
@@ -42,35 +36,29 @@ A simple WiFi mesh network for ESP32-C3 devices using ESP-IDF.
 
    idf.py build
 
-   idf.py flash monitor## Quick Setup## Quick Setup
+   idf.py flash monitor
 
    ```
 
 4. **Repeat on multiple ESP32-C3 devices**
 
+## How it works
 
-
-## How it works1. **Install ESP-IDF v5.5.1**1. **Install ESP-IDF v5.5.1**
-
-
-
-- First device powered on becomes the root node2. **Edit the WiFi settings** in `main/hello_world_main.c`:2. **Edit the WiFi settings** in `main/hello_world_main.c`:
+- First device powered on becomes the root node
 
 - Other devices automatically join as child nodes
 
-- All devices can send messages to each other   ```c   ```c
+- All devices can send messages to each other
 
 - If the root node fails, another device takes over
 
-   static const char *ROUTER_SSID = "YourWiFiName";   static const char *ROUTER_SSID = "YourWiFiName";
 
 ## What you'll see
 
-   static const char *ROUTER_PASS = "YourWiFiPassword";   static const char *ROUTER_PASS = "YourWiFiPassword";
 
 **Root device logs:**
 
-```   ```   ```
+```
 
 I MESH_UNIFIED: MESH_STARTED, layer=1
 
@@ -78,11 +66,9 @@ I MESH_UNIFIED: PARENT_CONNECTED, layer=13. **Build and flash**:3. **Build and f
 
 I MESH_UNIFIED: STATUS: connected=YES, layer=1, routing_table_size=1
 
-```   ```bash   ```bash
+```
 
-
-
-**Child device logs:**   idf.py build   idf.py build
+**Child device logs:**
 
 ```
 
@@ -90,115 +76,8 @@ I MESH_UNIFIED: MESH_STARTED, layer=-1   idf.py flash monitor   idf.py flash mon
 
 I MESH_UNIFIED: PARENT_CONNECTED, layer=2
 
-I MESH_UNIFIED: STATUS: connected=YES, layer=2, routing_table_size=1   ```   ```
+I MESH_UNIFIED: STATUS: connected=YES, layer=2, routing_table_size=1
 
-```
-
-4. **Repeat on multiple ESP32-C3 devices**4. **Repeat on multiple ESP32-C3 devices**
-
-## Files
-
-
-
-- `main/hello_world_main.c` - Main mesh code
-
-- `main/CMakeLists.txt` - Build configuration## How it works## How it works
-
-- `README.md` - This file
-
-
-
-## Troubleshooting
-
-- First device powered on becomes the root node- First device powered on becomes the root node
-
-**"No parent found" errors:** Make sure all devices have the same WiFi settings and are powered on.
-
-- Other devices automatically join as child nodes  - Other devices automatically join as child nodes  
-
-**Build errors:** Run `idf.py clean` then `idf.py build`
-
-- All devices can send messages to each other- All devices can send messages to each other
-
-## License
-
-- If the root node fails, another device takes over- If the root node fails, another device takes over
-
-MIT License - feel free to use this code in your projects.
-
-
-## What you'll see## What you'll see
-
-
-
-**Root device logs:****Root device logs:**
-
-``````
-
-I MESH_UNIFIED: MESH_STARTED, layer=1I MESH_UNIFIED: MESH_STARTED, layer=1
-
-I MESH_UNIFIED: PARENT_CONNECTED, layer=1I MESH_UNIFIED: PARENT_CONNECTED, layer=1
-
-I MESH_UNIFIED: STATUS: connected=YES, layer=1, routing_table_size=1I MESH_UNIFIED: STATUS: connected=YES, layer=1, routing_table_size=1
-
-``````
-
-
-
-**Child device logs:****Child device logs:**
-
-``````
-
-I MESH_UNIFIED: MESH_STARTED, layer=-1  I MESH_UNIFIED: MESH_STARTED, layer=-1  
-
-I MESH_UNIFIED: PARENT_CONNECTED, layer=2I MESH_UNIFIED: PARENT_CONNECTED, layer=2
-
-I MESH_UNIFIED: STATUS: connected=YES, layer=2, routing_table_size=1I MESH_UNIFIED: STATUS: connected=YES, layer=2, routing_table_size=1
-
-``````
-
-
-
-## Files## Files
-
-
-
-- `main/hello_world_main.c` - Main mesh code- `main/hello_world_main.c` - Main mesh code
-
-- `main/CMakeLists.txt` - Build configuration  - `main/CMakeLists.txt` - Build configuration  
-
-- `README.md` - This file- `README.md` - This file
-
-
-
-## Troubleshooting## Troubleshooting
-
-
-
-**"No parent found" errors:** Make sure all devices have the same WiFi settings and are powered on.**"No parent found" errors:** Make sure all devices have the same WiFi settings and are powered on.
-
-
-
-**Build errors:** Run `idf.py clean` then `idf.py build`**Build errors:** Run `idf.py clean` then `idf.py build`
-
-
-
-## License## License
-
-
-
-MIT License - feel free to use this code in your projects.MIT License - feel free to use this code in your projects.
-
-```c
-// 🆔 Unique mesh network identifier (must match on all nodes)
-static const uint8_t MESH_ID[6] = { 0x11,0x22,0x33,0x44,0x55,0x66 };
-
-// 🌐 WiFi router credentials for internet backhaul
-static const char *ROUTER_SSID = "IsolationSwitchWiFi";
-static const char *ROUTER_PASS = "Cutoutswitch1"; 
-
-// 🎯 Deployment mode: false = auto-election, true = force root
-static const bool FORCE_ROOT = false;
 ```
 
 ### 🔒 Security & Limits
