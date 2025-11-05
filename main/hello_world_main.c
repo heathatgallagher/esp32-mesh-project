@@ -54,6 +54,7 @@ typedef struct {
     // Route hint: last mesh source address we saw for this node (for unicast P2P)
     mesh_addr_t last_from;
     bool has_route;
+    int rssi; // last reported RSSI (dBm) to parent/router on the node side
 } node_info_t;
 
 static node_info_t known_nodes[MAX_MESH_NODES];
@@ -132,17 +133,29 @@ static void add_or_update_node(mesh_addr_t *addr, int layer) {
         known_nodes[node_count].is_active = true;
         memset(&known_nodes[node_count].last_from, 0, sizeof(known_nodes[node_count].last_from));
         known_nodes[node_count].has_route = false;
+        known_nodes[node_count].rssi = -127;
         node_count++;
         ESP_LOGI(TAG, "Added node %02x:%02x:%02x:%02x:%02x:%02x to registry (layer %d)",
                  addr->addr[0], addr->addr[1], addr->addr[2], addr->addr[3], addr->addr[4], addr->addr[5], layer);
     }
 }
 
+// Convert RSSI (dBm) to a rough signal percentage for UI (0 to 100)
+static int rssi_to_percent(int rssi) {
+    if (rssi <= -90) return 0;
+    if (rssi >= -50) return 100;
+    // Map [-90..-50] dBm to [0..100]
+    int pct = (rssi + 90) * 25 / 10; // approx 2.5x
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return pct;
+}
+
 // Web Server HTTP Handlers
 static esp_err_t root_handler(httpd_req_t *req) {
     const char* html = "<!DOCTYPE html>\n"
     "<html><head><title>ESP32 Mesh Controller</title>\n"
-    "<style>body{font-family:Arial;margin:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background-color:#f2f2f2}.btn{padding:5px 10px;margin:2px;cursor:pointer}.btn-on{background-color:#4CAF50;color:white}.btn-off{background-color:#f44336;color:white}</style>\n"
+    "<style>body{font-family:Arial;margin:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background-color:#f2f2f2}.btn{padding:5px 10px;margin:2px;cursor:pointer}.btn-on{background-color:#4CAF50;color:white}.btn-off{background-color:#f44336;color:white}.sigbar{height:8px;background:#ddd;border-radius:4px;overflow:hidden}.sigfill{height:8px;background:#4CAF50}</style>\n"
     "<script>\n"
     "async function toggleLED(mac) {\n"
     "  try {\n"
@@ -157,7 +170,17 @@ static esp_err_t root_handler(httpd_req_t *req) {
     "    const tbody = document.getElementById('nodeTable');\n"
     "    tbody.innerHTML = '';\n"
     "    nodes.forEach(node => {\n"
-    "      const row = `<tr><td>${node.mac}</td><td>${node.layer}</td><td>${node.active ? 'Active' : 'Inactive'}</td><td><button class='btn ${node.led ? 'btn-on' : 'btn-off'}' onclick='toggleLED(\"${node.mac}\")'>${node.led ? 'ON' : 'OFF'}</button></td></tr>`;\n"
+    "      const label = node.signal >= 75 ? 'Strong' : (node.signal >= 50 ? 'Good' : (node.signal >= 25 ? 'Fair' : 'Weak'));\n"
+    "      const bar = `<div class='sigbar'><div class='sigfill' style='width:${node.signal}%' /></div>`;\n"
+    "      const row = `<tr>\n"
+    "        <td>${node.mac}</td>\n"
+    "        <td>${node.layer}</td>\n"
+    "        <td>${node.active ? 'Active' : 'Inactive'}</td>\n"
+    "        <td>${node.rssi ?? ''} dBm</td>\n"
+    "        <td>${bar} <small>${node.signal ?? 0}% (${label})</small></td>\n"
+    "        <td>${node.via ?? ''}</td>\n"
+    "        <td><button class='btn ${node.led ? 'btn-on' : 'btn-off'}' onclick='toggleLED(\"${node.mac}\")'>${node.led ? 'ON' : 'OFF'}</button></td>\n"
+    "      </tr>`;\n"
     "      tbody.innerHTML += row;\n"
     "    });\n"
     "  } catch (e) { console.error('Failed to load nodes:', e); }\n"
@@ -167,7 +190,7 @@ static esp_err_t root_handler(httpd_req_t *req) {
     "<body onload='loadNodes()'>\n"
     "<h1>ESP32 Mesh Network Controller</h1>\n"
     "<h2>Connected Nodes</h2>\n"
-    "<table><thead><tr><th>MAC Address</th><th>Layer</th><th>Status</th><th>LED Control</th></tr></thead><tbody id='nodeTable'></tbody></table>\n"
+    "<table><thead><tr><th>MAC Address</th><th>Layer</th><th>Status</th><th>RSSI</th><th>Signal</th><th>Via</th><th>LED Control</th></tr></thead><tbody id='nodeTable'></tbody></table>\n"
     "</body></html>";
     
     httpd_resp_set_type(req, "text/html");
@@ -175,13 +198,11 @@ static esp_err_t root_handler(httpd_req_t *req) {
 }
 
 static esp_err_t api_nodes_handler(httpd_req_t *req) {
-    // Build JSON string manually
-    char json_str[2048];
-    int pos = 0;
-    
+    // Stream JSON in chunks to keep HTTPD stack usage low
     uint8_t self_addr[6];
     esp_wifi_get_mac(WIFI_IF_STA, self_addr);
-    
+    httpd_resp_set_type(req, "application/json");
+
     // Mark stale nodes as inactive (no heartbeat/status for 60 seconds)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     const uint32_t STALE_TIMEOUT_MS = 60000; // 60 seconds
@@ -190,38 +211,58 @@ static esp_err_t api_nodes_handler(httpd_req_t *req) {
             known_nodes[i].is_active = false;
         }
     }
-    
-    pos = snprintf(json_str, sizeof(json_str), "[");
-    
+
+    // Start JSON array
+    httpd_resp_send_chunk(req, "[", 1);
+
     // Add self to the list
     char mac_str[18];
     snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
              self_addr[0], self_addr[1], self_addr[2],
              self_addr[3], self_addr[4], self_addr[5]);
-    
-    pos += snprintf(json_str + pos, sizeof(json_str) - pos,
-                   "{\"mac\":\"%s\",\"layer\":%d,\"active\":true,\"led\":%s}",
-                   mac_str, esp_mesh_get_layer(), led_state ? "true" : "false");
+
+    // Determine our own RSSI to current AP (router if root, parent if not root)
+    int self_rssi = -127;
+    wifi_ap_record_t ap = {0};
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        self_rssi = ap.rssi;
+    }
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf),
+                     "{\"mac\":\"%s\",\"layer\":%d,\"active\":true,\"led\":%s,\"rssi\":%d,\"signal\":%d,\"via\":\"root\"}",
+                     mac_str, esp_mesh_get_layer(), led_state ? "true" : "false", self_rssi, rssi_to_percent(self_rssi));
+    if (n > 0) httpd_resp_send_chunk(req, buf, n);
     
     // Add known nodes (show both active and inactive)
     for (int i = 0; i < node_count; i++) {
-        if (pos < sizeof(json_str) - 100) {
-            snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-                     known_nodes[i].addr.addr[0], known_nodes[i].addr.addr[1], known_nodes[i].addr.addr[2],
-                     known_nodes[i].addr.addr[3], known_nodes[i].addr.addr[4], known_nodes[i].addr.addr[5]);
-            
-            pos += snprintf(json_str + pos, sizeof(json_str) - pos,
-                           ",{\"mac\":\"%s\",\"layer\":%d,\"active\":%s,\"led\":%s}",
-                           mac_str, known_nodes[i].layer,
-                           known_nodes[i].is_active ? "true" : "false",
-                           known_nodes[i].led_state ? "true" : "false");
+        snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 known_nodes[i].addr.addr[0], known_nodes[i].addr.addr[1], known_nodes[i].addr.addr[2],
+                 known_nodes[i].addr.addr[3], known_nodes[i].addr.addr[4], known_nodes[i].addr.addr[5]);
+
+        char via_str[18] = "";
+        if (known_nodes[i].has_route) {
+            snprintf(via_str, sizeof(via_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+                     known_nodes[i].last_from.addr[0], known_nodes[i].last_from.addr[1], known_nodes[i].last_from.addr[2],
+                     known_nodes[i].last_from.addr[3], known_nodes[i].last_from.addr[4], known_nodes[i].last_from.addr[5]);
+            // If via equals node MAC, treat as direct
+            if (strcmp(via_str, mac_str) == 0) {
+                strcpy(via_str, "direct");
+            }
+        } else {
+            strcpy(via_str, "?");
         }
+        n = snprintf(buf, sizeof(buf),
+                     ",{\"mac\":\"%s\",\"layer\":%d,\"active\":%s,\"led\":%s,\"rssi\":%d,\"signal\":%d,\"via\":\"%s\"}",
+                     mac_str, known_nodes[i].layer,
+                     known_nodes[i].is_active ? "true" : "false",
+                     known_nodes[i].led_state ? "true" : "false",
+                     known_nodes[i].rssi, rssi_to_percent(known_nodes[i].rssi), via_str);
+        if (n > 0) httpd_resp_send_chunk(req, buf, n);
     }
-    
-    pos += snprintf(json_str + pos, sizeof(json_str) - pos, "]");
-    
-    httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, json_str, pos);
+
+    // End JSON array
+    httpd_resp_send_chunk(req, "]", 1);
+    return httpd_resp_send_chunk(req, NULL, 0);
 }
 
 static esp_err_t api_led_handler(httpd_req_t *req) {
@@ -310,6 +351,8 @@ static esp_err_t start_web_server(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.max_uri_handlers = 8;
+    // Increase HTTPD stack: default is ~4KB, bump to 8KB to handle JSON building and templating
+    config.stack_size = 8192;
     // Enable wildcard URI matching so handlers like "/api/led/*" work
     config.uri_match_fn = httpd_uri_match_wildcard;
     
@@ -705,10 +748,16 @@ static void rx_task(void *arg) {
                         led_toggle();
                         
                         // Send status response to root
-                        char resp_str[128];
-                        snprintf(resp_str, sizeof(resp_str),
-                                "{\"cmd\":\"status_response\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d}",
-                                self_mac, led_state ? "true" : "false", esp_mesh_get_layer());
+            // Capture our current RSSI to parent/router
+            int my_rssi = -127;
+            wifi_ap_record_t aprec = {0};
+            if (esp_wifi_sta_get_ap_info(&aprec) == ESP_OK) {
+                my_rssi = aprec.rssi;
+            }
+            char resp_str[160];
+            snprintf(resp_str, sizeof(resp_str),
+                "{\"cmd\":\"status_response\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d,\"rssi\":%d}",
+                self_mac, led_state ? "true" : "false", esp_mesh_get_layer(), my_rssi);
                         
                         mesh_data_t resp_data = {
                             .data = (uint8_t*)resp_str,
@@ -731,10 +780,15 @@ static void rx_task(void *arg) {
                          self_addr[0], self_addr[1], self_addr[2],
                          self_addr[3], self_addr[4], self_addr[5]);
                 
-                char resp_str[128];
-                snprintf(resp_str, sizeof(resp_str),
-                        "{\"cmd\":\"status_response\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d}",
-                        self_mac, led_state ? "true" : "false", esp_mesh_get_layer());
+        int my_rssi = -127;
+        wifi_ap_record_t aprec = {0};
+        if (esp_wifi_sta_get_ap_info(&aprec) == ESP_OK) {
+            my_rssi = aprec.rssi;
+        }
+        char resp_str[160];
+        snprintf(resp_str, sizeof(resp_str),
+            "{\"cmd\":\"status_response\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d,\"rssi\":%d}",
+            self_mac, led_state ? "true" : "false", esp_mesh_get_layer(), my_rssi);
                 
                 mesh_data_t resp_data = {
                     .data = (uint8_t*)resp_str,
@@ -775,6 +829,12 @@ static void rx_task(void *arg) {
                     
                     // Parse LED state
                     bool resp_led_state = strstr(msg_copy, "\"led_state\":true") != NULL;
+                    // Parse RSSI if present
+                    int resp_rssi = -127;
+                    char *rssi_ptr = strstr(msg_copy, "\"rssi\":");
+                    if (rssi_ptr) {
+                        resp_rssi = atoi(rssi_ptr + 7);
+                    }
                     
                     // Update node registry
                     for (int i = 0; i < node_count; i++) {
@@ -785,6 +845,7 @@ static void rx_task(void *arg) {
                         
                         if (strcmp(node_mac, resp_mac) == 0) {
                             known_nodes[i].led_state = resp_led_state;
+                            known_nodes[i].rssi = resp_rssi;
                             // don't break: update all duplicates if any
                         }
                     }
@@ -804,6 +865,11 @@ static void rx_task(void *arg) {
                         hb_layer = atoi(layer_ptr + 8);
                     }
                     bool hb_led_state = strstr(msg_copy, "\"led_state\":true") != NULL;
+                    int hb_rssi = -127;
+                    char *rssi_ptr = strstr(msg_copy, "\"rssi\":");
+                    if (rssi_ptr) {
+                        hb_rssi = atoi(rssi_ptr + 7);
+                    }
                     uint8_t mac_bytes[6];
                     if (parse_mac_str(hb_mac, mac_bytes)) {
                         mesh_addr_t node_addr = {0};
@@ -815,6 +881,7 @@ static void rx_task(void *arg) {
                                 known_nodes[i].last_from = from;
                                 known_nodes[i].has_route = true;
                                 known_nodes[i].led_state = hb_led_state;
+                                known_nodes[i].rssi = hb_rssi;
                                 break;
                             }
                         }
@@ -915,6 +982,10 @@ static void start_mesh(void) {
 
 void app_main(void) {
     ESP_LOGI(TAG, "Starting mesh demo with dynamic root election");
+    // Tame noisy logs from lower layers to make troubleshooting easier during self-heal
+    esp_log_level_set("mesh", ESP_LOGW);
+    esp_log_level_set("wifi", ESP_LOGW);
+    esp_log_level_set("net80211", ESP_LOGW);
     ESP_ERROR_CHECK(nvs_flash_init());
     
     // Initialize LED
@@ -951,10 +1022,16 @@ void app_main(void) {
                      self_addr[0], self_addr[1], self_addr[2],
                      self_addr[3], self_addr[4], self_addr[5]);
             
-            char ann_str[128];
-            snprintf(ann_str, sizeof(ann_str),
-                    "{\"cmd\":\"heartbeat\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d}",
-                    self_mac, led_state ? "true" : "false", esp_mesh_get_layer());
+        // Attach RSSI to heartbeat for link quality visualization
+        int my_rssi = -127;
+        wifi_ap_record_t aprec = {0};
+        if (esp_wifi_sta_get_ap_info(&aprec) == ESP_OK) {
+        my_rssi = aprec.rssi;
+        }
+        char ann_str[160];
+        snprintf(ann_str, sizeof(ann_str),
+            "{\"cmd\":\"heartbeat\",\"mac\":\"%s\",\"led_state\":%s,\"layer\":%d,\"rssi\":%d}",
+            self_mac, led_state ? "true" : "false", esp_mesh_get_layer(), my_rssi);
             
             mesh_data_t d = {
                 .data = (uint8_t*)ann_str,
